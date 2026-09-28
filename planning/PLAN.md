@@ -454,3 +454,26 @@ The container is designed to deploy to AWS App Runner, Render, or any container 
 - Portfolio visualization: heatmap renders with correct colors, P&L chart has data points
 - AI chat (mocked): send a message, receive a response, trade execution appears inline
 - SSE resilience: disconnect and verify reconnection
+
+---
+
+## 13. Documentation Review — Open Questions & Simplification Opportunities
+
+*Added by a doc-review pass. The market data component (§6) is already built — see `planning/MARKET_DATA_SUMMARY.md` — so a couple of these questions are really "does the plan text match what got built" checks, not new design questions.*
+
+### Questions & Clarifications
+
+- **Missing chat history endpoint.** §10 says the AI chat panel shows "scrolling conversation history," and `chat_messages` (§7) is clearly meant to persist across sessions, but §8's API table has no `GET /api/chat` (or similar) to load prior messages on page load/refresh. Either add the endpoint or clarify that chat history is frontend-only/session-scoped and the table exists purely as an audit log.
+- **SSE push model contradicts what's already built.** §6 says the server "pushes price updates for all tickers known to the system at a regular cadence (~500ms)," implying a full broadcast every tick. `MARKET_DATA_SUMMARY.md` describes `stream.py` using "version-based change detection," implying it only pushes tickers that actually changed. Worth reconciling the wording so downstream frontend assumptions (e.g., expecting an event per ticker every 500ms) aren't built on the wrong model.
+- **Can users add arbitrary tickers to the watchlist?** The simulator's seed prices/GBM params (`seed_prices.py`) are presumably defined for a fixed universe (the 10 defaults). §8 exposes `POST /api/watchlist` and §9 lets the LLM add tickers via `watchlist_changes`, with no mention of validation against a known universe. What happens if a user (or the LLM) adds a ticker the simulator has no params for — reject it, or generate default GBM params on the fly?
+- **Cold-start P&L chart.** `portfolio_snapshots` (§7) is written every 30s and after each trade. On a fresh install with no trades yet, is a $10,000 snapshot seeded at `created_at` so the P&L chart has a starting point, or does it stay empty for up to 30 seconds after first launch?
+- **Massive free-tier math.** §6 says the free tier allows "5 calls/min" and polls "every 15 seconds," but also polls "the union of all watched tickers" — with 10 default tickers, does one poll = one API call (batched multi-ticker request) or one call per ticker? If it's per-ticker, 10 tickers every 15s is 40 calls/min, well over the stated 5/min limit. Worth spelling out whether Massive's endpoint supports batched ticker requests.
+- **Trades by dollar amount.** §9's structured output schema only accepts a share `quantity` for LLM-initiated trades. Natural-language requests like "buy $500 of AAPL" are a very plausible ask for a chat-driven trading assistant — should the LLM be expected to convert dollars to shares itself using the live price already in its context, or should the schema support a dollar-amount field directly?
+- **Failed LLM-initiated trades.** §9 says a failed trade's error is "included in the chat response," but §7's `chat_messages.actions` schema isn't spelled out for the failure case — is a rejected trade recorded in `actions` (e.g., with a `status: "failed"` field) or omitted entirely since it never executed? Matters for anyone building a "trade history" view from that column later.
+- **Main chart history on load.** §10 is explicit that watchlist sparklines are "accumulated from SSE since page load" (empty until data streams in). It doesn't say whether the main detail chart works the same way. Worth confirming that's the intended model everywhere (no backend-served intraday history endpoint) rather than an oversight.
+
+### Opportunities to Simplify
+
+- **§4's `backend/db/` description says "migration logic,"** but §7 explicitly states the project has "no separate migration step" (lazy create-and-seed only). Renaming to "seed logic" in §4 would remove the only place the doc implies a migrations system exists.
+- **§5 duplicates itself.** The `.env` code block already carries inline comments explaining `MASSIVE_API_KEY` and `LLM_MOCK` behavior, and the "Behavior" bullets immediately below restate the same three rules in prose. Could collapse to one or the other.
+- **§11's `docker-compose.yml`** is listed as an "optional convenience wrapper" but the only run command shown anywhere in the doc is the raw `docker run -v ... finally` in §11. If compose is meant to be the recommended path for local dev, showing its `docker-compose.yml` contents (or the equivalent `docker-compose up` command) alongside the raw `docker run` would save whichever agent builds it from having to guess the intended service definition.
